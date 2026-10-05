@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #07090e;
+    color: #e2e8f0;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom Keyframe Animations for BloodLink AI */
+@keyframes heartPulse {
+  0% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 16px rgba(225, 29, 72, 0.45));
+  }
+  12% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 32px rgba(244, 63, 94, 0.85));
+  }
+  24% {
+    transform: scale(0.97);
+    filter: drop-shadow(0 0 18px rgba(225, 29, 72, 0.4));
+  }
+  36% {
+    transform: scale(1.14);
+    filter: drop-shadow(0 0 42px rgba(239, 68, 68, 0.95));
+  }
+  60% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 16px rgba(225, 29, 72, 0.45));
+  }
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 16px rgba(225, 29, 72, 0.45));
+  }
+}
+
+@keyframes orbitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbitReverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes orbitTilted {
+  0% {
+    transform: rotate3d(1, 0.5, 0.2, 0deg);
+  }
+  100% {
+    transform: rotate3d(1, 0.5, 0.2, 360deg);
+  }
+}
+
+@keyframes ecgStream {
+  0% {
+    stroke-dashoffset: 1200;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ecgSweepBar {
+  0% {
+    left: -5%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 105%;
+    opacity: 0;
+  }
+}
+
+@keyframes radarRadarSweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes nodeRingPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes bloodDrip {
+  0% {
+    transform: scale(0.9) translateY(0);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15) translateY(3px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9) translateY(0);
+    opacity: 0.8;
+  }
+}
+
+@keyframes emergencyBeacon {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.35), inset 0 0 15px rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.75), inset 0 0 25px rgba(239, 68, 68, 0.4);
+    border-color: rgba(244, 63, 94, 0.85);
+  }
+}
+
+/* Reusable Medical Design System Utilities */
+.animate-heart-pulse {
+  animation: heartPulse 2.2s infinite ease-in-out;
+}
+
+.animate-orbit {
+  animation: orbitSpin 12s linear infinite;
+}
+
+.animate-orbit-slow {
+  animation: orbitSpin 22s linear infinite;
+}
+
+.animate-orbit-reverse {
+  animation: orbitReverse 16s linear infinite;
+}
+
+.animate-orbit-tilted {
+  animation: orbitTilted 18s linear infinite;
+}
+
+.animate-ecg-stream {
+  animation: ecgStream 3s linear infinite;
+}
+
+.animate-ecg-sweep {
+  animation: ecgSweepBar 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-radar-sweep {
+  animation: radarRadarSweep 6s linear infinite;
+}
+
+.animate-emergency-beacon {
+  animation: emergencyBeacon 2s infinite ease-in-out;
+}
+
+.animate-float {
+  animation: floatGentle 4s ease-in-out infinite;
+}
+
+.animate-blood-drip {
+  animation: bloodDrip 3s ease-in-out infinite;
+}
+
+/* Background Grids & Medical Patterns */
+.bg-medical-dark {
+  background-color: #07090e;
+  background-image: 
+    radial-gradient(circle at 50% 20%, rgba(225, 29, 72, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 10% 80%, rgba(159, 18, 57, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 70%, rgba(136, 19, 55, 0.08) 0%, transparent 40%),
+    linear-gradient(to bottom, #07090e, #0c1017);
+}
+
+.bg-medical-grid {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(244, 63, 94, 0.15);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel-subtle {
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-panel-emergency {
+  background: rgba(26, 10, 16, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  box-shadow: 0 0 25px rgba(225, 29, 72, 0.15);
+}
+
+.glass-card-interactive {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-interactive:hover {
+  background: rgba(24, 33, 56, 0.7);
+  border-color: rgba(244, 63, 94, 0.35);
+  box-shadow: 0 10px 30px -10px rgba(225, 29, 72, 0.25);
+  transform: translateY(-2px);
+}
+
+/* Glowing Neon Borders and Shadows */
+.glow-ruby-btn {
+  box-shadow: 0 0 20px -3px rgba(225, 29, 72, 0.45), 0 0 8px 0px rgba(244, 63, 94, 0.35);
+  transition: all 0.25s ease;
+}
+
+.glow-ruby-btn:hover {
+  box-shadow: 0 0 30px 0px rgba(225, 29, 72, 0.7), 0 0 12px 2px rgba(244, 63, 94, 0.5);
+  transform: translateY(-1px);
+}
+
+.glow-emerald-btn {
+  box-shadow: 0 0 18px -3px rgba(16, 185, 129, 0.45);
+}
+
+.glow-emerald-btn:hover {
+  box-shadow: 0 0 28px 0px rgba(16, 185, 129, 0.65);
+  transform: translateY(-1px);
+}
+
+.glow-text-red {
+  text-shadow: 0 0 12px rgba(244, 63, 94, 0.6);
+}
+
+.glow-text-cyan {
+  text-shadow: 0 0 12px rgba(6, 182, 212, 0.6);
+}
