@@ -349,11 +349,11 @@
       "requiredDateTime": "Immediately / Within 2 hours",
       "contactNumber": "+91 94444 00002",
       "additionalNotes": "Critical blunt trauma victim. ICU Ward 3. Blood matching in progress.",
-      "status": "Donors Notified",
+      "status": "Donor Responded",
       "notifiedDonorsCount": 2,
-      "responsesCount": 1,
+      "responsesCount": 3,
       "createdAt": "2026-10-05T13:40:04.919Z",
-      "updatedAt": "2026-10-05T14:10:04.919Z"
+      "updatedAt": "2026-10-06T08:57:13.194Z"
     }
   ],
   "notifications": [
@@ -702,12 +702,36 @@
       "hospitalName": "City General Hospital & Trauma Center [DEMO]",
       "approxDistanceKm": 3.5,
       "unitsRequired": 2,
-      "status": "DELIVERED",
+      "status": "RESPONDED",
       "deliveryChannel": "IN_APP",
-      "createdAt": "2026-10-05T13:40:04.919Z"
+      "createdAt": "2026-10-05T13:40:04.919Z",
+      "responseOption": "I CAN DONATE",
+      "respondedAt": "2026-10-06T08:56:53.815Z"
     }
   ],
   "donorResponses": [
+    {
+      "bloodRequestId": "DEMO-REQ-101",
+      "donorId": "DEMO-DNR-003",
+      "donorName": "Senthil Nathan [DEMO]",
+      "donorBloodGroup": "O+",
+      "response": "NOT AVAILABLE",
+      "responseChannel": "SMS_LINK",
+      "id": "RSP-1791277033194-347",
+      "respondedAt": "2026-10-06T08:57:13.194Z"
+    },
+    {
+      "bloodRequestId": "DEMO-REQ-101",
+      "donorId": "DEMO-DNR-002",
+      "donorName": "Dr. Priya V. [DEMO]",
+      "donorBloodGroup": "A+",
+      "donorPhone": "+91 98888 22222",
+      "response": "I CAN DONATE",
+      "notes": "Ready to donate within 30 mins",
+      "responseChannel": "SMS_LINK",
+      "id": "RSP-1791277013816-341",
+      "respondedAt": "2026-10-06T08:56:53.816Z"
+    },
     {
       "bloodRequestId": "REQ-2026-63600",
       "donorId": "DNR-2026-49082",
@@ -766,6 +790,42 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "AUD-1791277033195-4",
+      "actorRole": "DONOR",
+      "actorId": "DEMO-DNR-003",
+      "actorName": "Senthil Nathan [DEMO]",
+      "action": "DONOR_RESPONDED_NO",
+      "details": "Donor responded \"NOT AVAILABLE\" via Emergency SMS response link for Request DEMO-REQ-101",
+      "timestamp": "2026-10-06T08:57:13.195Z"
+    },
+    {
+      "id": "AUD-1791277033195-449",
+      "actorRole": "DONOR",
+      "actorId": "DEMO-DNR-003",
+      "actorName": "Senthil Nathan [DEMO]",
+      "action": "DONOR_RESPONDED",
+      "details": "Donor responded \"NOT AVAILABLE\" for request DEMO-REQ-101",
+      "timestamp": "2026-10-06T08:57:13.195Z"
+    },
+    {
+      "id": "AUD-1791277013817-779",
+      "actorRole": "DONOR",
+      "actorId": "DEMO-DNR-002",
+      "actorName": "Dr. Priya V. [DEMO]",
+      "action": "DONOR_RESPONDED_YES",
+      "details": "Donor responded \"I CAN DONATE\" via Emergency SMS response link for Request DEMO-REQ-101",
+      "timestamp": "2026-10-06T08:56:53.817Z"
+    },
+    {
+      "id": "AUD-1791277013816-565",
+      "actorRole": "DONOR",
+      "actorId": "DEMO-DNR-002",
+      "actorName": "Dr. Priya V. [DEMO]",
+      "action": "DONOR_RESPONDED",
+      "details": "Donor responded \"I CAN DONATE\" for request DEMO-REQ-101",
+      "timestamp": "2026-10-06T08:56:53.816Z"
+    },
     {
       "id": "AUD-1791211981729-759",
       "actorRole": "DONOR",

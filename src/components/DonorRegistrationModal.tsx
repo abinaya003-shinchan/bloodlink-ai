@@ -1,32 +1,23 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { api } from '../services/api';
-import { BloodGroup } from '../types';
+import { BloodGroup, Donor } from '../types';
 import { AlertCircle, CheckCircle2, ShieldCheck, X } from 'lucide-react';
+import { DistrictSelect } from './DistrictSelect';
+import {
+  validateDonorDob,
+  calculateAgeFromDob,
+  isValidEmail,
+  isValidPhone,
+} from '../utils/validation';
 
 interface DonorRegistrationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (donor: any) => void;
+  onSuccess: (donor: Donor) => void;
 }
 
 const BLOOD_GROUPS: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-
-const TN_DISTRICTS = [
-  'Chennai',
-  'Coimbatore',
-  'Madurai',
-  'Tiruchirappalli',
-  'Salem',
-  'Tirunelveli',
-  'Erode',
-  'Vellore',
-  'Thanjavur',
-  'Dindigul',
-  'Kanchipuram',
-  'Chengalpattu',
-  'Tiruvallur',
-];
 
 export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
   isOpen,
@@ -55,6 +46,10 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Live accurate age calculation
+  const calculatedAge = dob ? calculateAgeFromDob(dob) : 0;
+  const dobCheck = dob ? validateDonorDob(dob) : { valid: false, age: 0 };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -68,12 +63,44 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
       return;
     }
 
-    // Age validation (18-65)
-    const birthYear = new Date(dob).getFullYear();
-    const currentYear = new Date().getFullYear();
-    const calculatedAge = currentYear - birthYear;
-    if (calculatedAge < 18 || calculatedAge > 65) {
-      setError('Donor must be between 18 and 65 years of age.');
+    // Accurate DOB and age validation
+    const dobResult = validateDonorDob(dob);
+    if (!dobResult.valid) {
+      setError(language === 'ta' ? dobResult.errorTa || dobResult.error! : dobResult.error!);
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setError(
+        language === 'ta'
+          ? 'செல்லுபடியாகும் மின்னஞ்சல் முகவரியை உள்ளிடவும்.'
+          : 'Please enter a valid email address.'
+      );
+      return;
+    }
+
+    if (!isValidPhone(phone)) {
+      setError(
+        language === 'ta'
+          ? 'செல்லுபடியாகும் 10-15 இலக்க தொலைபேசி எண்ணை உள்ளிடவும்.'
+          : 'Please enter a valid 10 to 15-digit phone number.'
+      );
+      return;
+    }
+
+    if (!district) {
+      setError(
+        language === 'ta'
+          ? 'தமிழ்நாடு மாவட்டத்தைத் தேர்ந்தெடுக்கவும்.'
+          : 'Please select a Tamil Nadu district.'
+      );
+      return;
+    }
+
+    if (!city.trim()) {
+      setError(
+        language === 'ta' ? 'நகரம் / பகுதியை உள்ளிடவும்.' : 'Please enter your city or area.'
+      );
       return;
     }
 
@@ -81,15 +108,16 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
 
     try {
       const response = await api.registerDonor({
-        fullName,
-        phone,
-        email,
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        email: email.trim().toLowerCase(),
         dob,
+        age: dobResult.age,
         gender,
         bloodGroup,
-        district,
-        city,
-        address,
+        district: district.trim(),
+        city: city.trim(),
+        address: address.trim(),
         emergencyAvailable,
         preferredLanguage,
         lastDonationDate: neverDonated ? undefined : lastDonationDate || undefined,
@@ -112,13 +140,22 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
       <div className="bg-slate-950 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.9)] max-w-2xl w-full my-8 overflow-hidden border border-red-500/30">
-        {/* Header */}
+        {/* Modal Header */}
         <div className="bg-slate-900 border-b border-slate-800 text-white px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-black text-white">{t('register')} – {t('donor')}</h2>
-            <p className="text-xs text-slate-400">
-              Create verified donor profile with BloodLink AI
-            </p>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-red-600/30 border border-red-500/50 flex items-center justify-center text-red-400 font-black">
+              +
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-white tracking-tight">
+                {t('register')} – {t('donor')}
+              </h2>
+              <p className="text-xs text-slate-400">
+                {language === 'ta'
+                  ? 'இரத்த தானம் செய்ய பதிவு செய்து உயிர்களைக் காப்பாற்றுங்கள்'
+                  : 'Join BloodLink AI verified donor network to save lives'}
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -128,15 +165,16 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
           </button>
         </div>
 
-        {/* Form Body */}
+        {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           {error && (
-            <div className="p-3 bg-red-950/60 border border-red-500/50 rounded-xl text-rose-300 text-xs flex items-start gap-2">
+            <div className="p-3 bg-red-950/60 border border-red-500/50 rounded-xl text-rose-300 text-xs flex items-start gap-2 shadow-[0_0_15px_rgba(225,29,72,0.2)]">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
               <span>{error}</span>
             </div>
           )}
 
+          {/* Section 1: Personal Details */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Full Name */}
             <div>
@@ -148,7 +186,7 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Ramesh Kannan"
+                placeholder="e.g. Karthik Raja"
                 className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
@@ -161,11 +199,11 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
               <select
                 value={bloodGroup}
                 onChange={(e) => setBloodGroup(e.target.value as BloodGroup)}
-                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500 font-bold"
               >
                 {BLOOD_GROUPS.map((bg) => (
                   <option key={bg} value={bg}>
-                    {bg}
+                    {bg} {bg === 'O-' ? '(Universal RBC Donor)' : ''}
                   </option>
                 ))}
               </select>
@@ -201,11 +239,22 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
               />
             </div>
 
-            {/* DOB */}
+            {/* DOB & Live Age Calculation */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('dateOfBirth')} (18-65 yrs) *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-300">
+                  {t('dateOfBirth')} (18-65 yrs) *
+                </label>
+                <span
+                  className={`text-[11px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                    dobCheck.valid
+                      ? 'text-emerald-400 bg-emerald-950/80 border border-emerald-500/30'
+                      : 'text-amber-400 bg-amber-950/80 border border-amber-500/30'
+                  }`}
+                >
+                  {calculatedAge > 0 ? `Age: ${calculatedAge} yrs` : 'Invalid'}
+                </span>
+              </div>
               <input
                 type="date"
                 required
@@ -231,22 +280,14 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
               </select>
             </div>
 
-            {/* District */}
+            {/* Reusable Searchable Tamil Nadu District Selector */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('district')} *
-              </label>
-              <select
+              <DistrictSelect
                 value={district}
-                onChange={(e) => setDistrict(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                {TN_DISTRICTS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+                onChange={setDistrict}
+                label={t('district')}
+                required
+              />
             </div>
 
             {/* City / Area */}
@@ -259,7 +300,7 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
                 required
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                placeholder="e.g. Adyar, Anna Nagar"
+                placeholder="e.g. Adyar, Anna Nagar, Courtallam"
                 className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
@@ -279,13 +320,35 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
             />
           </div>
 
-          {/* Donation History (Last Donation Date) */}
-          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300">
+          {/* Preferred Language */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                {t('preferredLanguage')}
+              </label>
+              <select
+                value={preferredLanguage}
+                onChange={(e) => setPreferredLanguage(e.target.value as 'en' | 'ta')}
+                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+
+            {/* Last Donation Date */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('lastDonationDate')}
               </label>
-              <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+              <input
+                type="date"
+                disabled={neverDonated}
+                value={lastDonationDate}
+                onChange={(e) => setLastDonationDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-40"
+              />
+              <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={neverDonated}
@@ -295,87 +358,82 @@ export const DonorRegistrationModal: React.FC<DonorRegistrationModalProps> = ({
                   }}
                   className="rounded text-red-600 focus:ring-red-500 bg-slate-900 border-slate-700"
                 />
-                First-time donor (Never donated before)
+                <span className="text-xs text-slate-400">
+                  {language === 'ta' ? 'இது எனது முதல் இரத்த தானம்' : 'First-time donor (Never donated before)'}
+                </span>
               </label>
             </div>
-            {!neverDonated && (
-              <input
-                type="date"
-                value={lastDonationDate}
-                onChange={(e) => setLastDonationDate(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            )}
-            <p className="text-[11px] text-slate-400">
-              * Note: A 90-day recovery interval is required between whole blood donations.
-            </p>
           </div>
 
-          {/* Emergency & Language Preferences */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-3 bg-red-950/40 border border-red-500/30 rounded-xl flex items-center justify-between">
-              <div>
-                <span className="block text-xs font-semibold text-rose-300">
-                  {t('emergencyAvailability')}
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  Will accept priority emergency blood notifications
-                </span>
-              </div>
-              <input
-                type="checkbox"
-                checked={emergencyAvailable}
-                onChange={(e) => setEmergencyAvailable(e.target.checked)}
-                className="w-5 h-5 text-red-600 rounded focus:ring-red-500 cursor-pointer"
-              />
-            </div>
-
+          {/* Emergency Availability Toggle */}
+          <div className="p-3.5 bg-red-950/30 border border-red-500/20 rounded-xl flex items-center justify-between">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('preferredLanguage')}
-              </label>
-              <select
-                value={preferredLanguage}
-                onChange={(e) => setPreferredLanguage(e.target.value as any)}
-                className="w-full px-3 py-2 text-sm bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                <option value="ta">தமிழ் (Tamil)</option>
-                <option value="en">English</option>
-              </select>
+              <span className="text-xs font-bold text-white block">
+                {t('emergencyAvailability')}
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {language === 'ta'
+                  ? 'இரவு நேர அவசர சிகிச்சைகளுக்கான அழைப்புகளுக்கு தயார் நிலை'
+                  : 'Be on-call for trauma cases and urgent ICU requirements'}
+              </span>
             </div>
-          </div>
-
-          {/* Consent */}
-          <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl flex items-start gap-2">
             <input
               type="checkbox"
-              id="donorConsent"
-              required
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-              className="mt-1 w-4 h-4 text-red-600 rounded focus:ring-red-500 cursor-pointer"
+              checked={emergencyAvailable}
+              onChange={(e) => setEmergencyAvailable(e.target.checked)}
+              className="w-4 h-4 rounded text-red-600 focus:ring-red-500 bg-slate-900 border-slate-700 cursor-pointer"
             />
-            <label htmlFor="donorConsent" className="text-xs text-amber-200 leading-relaxed cursor-pointer">
-              {t('consentText')}
-            </label>
           </div>
 
-          {/* Submit */}
-          <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+          {/* Medical & Legal Consent Checkbox */}
+          <div className="p-3.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-2">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                required
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                className="w-4 h-4 rounded text-red-600 focus:ring-red-500 bg-slate-900 border-slate-700 mt-0.5 shrink-0 cursor-pointer"
+              />
+              <span className="text-xs text-slate-300 leading-relaxed">
+                {t('consentText')}
+              </span>
+            </label>
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 pl-6">
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {language === 'ta'
+                  ? 'உங்கள் தொடர்பு விவரங்கள் தானம் செய்ய ஒப்புக்கொண்ட பின் மட்டுமே மருத்துவமனைக்கு பகிரப்படும்.'
+                  : 'Contact privacy: Phone/email are revealed to hospitals only when you accept a request.'}
+              </span>
+            </div>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
-              {t('cancel')}
+              Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 rounded-xl glow-ruby-btn transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs flex items-center gap-2 glow-ruby-btn cursor-pointer disabled:opacity-50"
             >
-              <ShieldCheck className="w-4 h-4" />
-              {loading ? t('loading') : t('registerDonorButton')}
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{t('registerDonorButton')}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

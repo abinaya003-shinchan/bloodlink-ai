@@ -427,6 +427,11 @@ export const HospitalDashboard: React.FC = () => {
                             <span className="ml-2 font-mono text-[11px] text-slate-400">
                               {new Date(resp.respondedAt).toLocaleTimeString()}
                             </span>
+                            {resp.responseChannel === 'SMS_LINK' && (
+                              <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-950/80 border border-red-800/50 text-rose-300">
+                                📱 SMS Link
+                              </span>
+                            )}
                             {resp.notes && (
                               <p className="text-slate-400 text-[11px] mt-0.5">Note: &ldquo;{resp.notes}&rdquo;</p>
                             )}
@@ -437,7 +442,9 @@ export const HospitalDashboard: React.FC = () => {
                               className={`text-[11px] font-bold px-2 py-0.5 rounded ${
                                 resp.response === 'I CAN DONATE'
                                   ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/50'
-                                  : 'bg-slate-800 text-slate-300'
+                                  : resp.response === 'NOT AVAILABLE'
+                                  ? 'bg-slate-900 text-slate-400 border border-slate-800'
+                                  : 'bg-amber-950/80 text-amber-300 border border-amber-800/50'
                               }`}
                             >
                               {resp.response}
@@ -446,13 +453,15 @@ export const HospitalDashboard: React.FC = () => {
                             {resp.donorPhone ? (
                               <a
                                 href={`tel:${resp.donorPhone}`}
-                                className="px-2.5 py-1 bg-emerald-600 text-white rounded text-xs font-semibold flex items-center gap-1 hover:bg-emerald-500 transition-colors"
+                                className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 hover:bg-emerald-500 transition-colors shadow-xs"
                               >
                                 <Phone className="w-3 h-3" />
                                 Call {resp.donorPhone}
                               </a>
                             ) : (
-                              <span className="text-[11px] text-slate-500">Unavailable</span>
+                              <span className="text-[11px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                🔒 Contact Protected
+                              </span>
                             )}
                           </div>
                         </div>

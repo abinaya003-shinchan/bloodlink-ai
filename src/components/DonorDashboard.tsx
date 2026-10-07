@@ -4,6 +4,8 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { api } from '../services/api';
 import { Donor, DonorResponse, DonorResponseType, DonorStatus, Notification } from '../types';
 import { MEDICAL_DISCLAIMER_EN, MEDICAL_DISCLAIMER_TA } from '../services/compatibility';
+import { DistrictSelect } from './DistrictSelect';
+import { validateDonorDob, calculateAgeFromDob } from '../utils/validation';
 import {
   HeartPulse,
   ShieldCheck,
@@ -23,23 +25,8 @@ import {
   X,
   LogOut,
   Info,
+  ExternalLink,
 } from 'lucide-react';
-
-const TN_DISTRICTS = [
-  'Chennai',
-  'Coimbatore',
-  'Madurai',
-  'Tiruchirappalli',
-  'Salem',
-  'Tirunelveli',
-  'Erode',
-  'Vellore',
-  'Thanjavur',
-  'Dindigul',
-  'Kanchipuram',
-  'Chengalpattu',
-  'Tiruvallur',
-];
 
 export const DonorDashboard: React.FC = () => {
   const { donor, refreshProfile, logout } = useAuth();
@@ -115,6 +102,14 @@ export const DonorDashboard: React.FC = () => {
     e.preventDefault();
     if (!donor) return;
     setEditError(null);
+
+    // Validate Date of Birth
+    const dobCheck = validateDonorDob(editDob);
+    if (!dobCheck.valid) {
+      setEditError(dobCheck.error || 'Invalid date of birth');
+      return;
+    }
+
     setEditLoading(true);
 
     try {
@@ -503,22 +498,58 @@ export const DonorDashboard: React.FC = () => {
 
                   {/* Actions / Response Status */}
                   <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-[11px] text-slate-400 flex items-center gap-2 font-mono">
-                      <span>Channel: <strong className="text-slate-200">IN-APP Notification</strong></span>
+                    <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-2 font-mono">
+                      <span>
+                        Channel:{' '}
+                        <strong className="text-slate-200">
+                          {notif.deliveryChannel === 'IN_APP_AND_SMS' ? '📱 SMS + IN-APP' : 'IN-APP'}
+                        </strong>
+                      </span>
+                      {notif.smsRecipientPhone && (
+                        <>
+                          <span>•</span>
+                          <span>SMS: <strong className="text-rose-400">{notif.smsRecipientPhone}</strong></span>
+                        </>
+                      )}
+                      {notif.smsStatus && (
+                        <>
+                          <span>•</span>
+                          <span className="text-emerald-400">Gateway: {notif.smsStatus}</span>
+                        </>
+                      )}
                       <span>•</span>
                       <span>Status: <strong className="text-red-400 uppercase">{notif.status}</strong></span>
                       <span>•</span>
                       <span>{new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
 
-                    {isResponded ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
-                          <Check className="w-4 h-4 text-emerald-400" />
-                          Responded: {notif.responseOption}
-                        </span>
-                      </div>
-                    ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => {
+                          window.dispatchEvent(
+                            new CustomEvent('open-emergency-response', {
+                              detail: {
+                                requestId: notif.bloodRequestId,
+                                donorId: notif.recipientDonorId,
+                              },
+                            })
+                          );
+                        }}
+                        className="text-[11px] px-2.5 py-1 rounded-xl bg-red-950/60 hover:bg-red-900/80 text-rose-300 border border-red-800/50 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Simulate opening response portal from SMS alert"
+                      >
+                        <ExternalLink className="w-3 h-3 text-red-400" />
+                        SMS Response Portal
+                      </button>
+
+                      {isResponded ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
+                            <Check className="w-4 h-4 text-emerald-400" />
+                            Responded: {notif.responseOption}
+                          </span>
+                        </div>
+                      ) : (
                       <div className="flex items-center gap-2">
                         {respondingTo === notif.bloodRequestId ? (
                           <div className="flex items-center gap-2">
@@ -567,6 +598,7 @@ export const DonorDashboard: React.FC = () => {
                         )}
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
               );
@@ -723,20 +755,12 @@ export const DonorDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {t('district')} *
-                  </label>
-                  <select
+                  <DistrictSelect
                     value={editDistrict}
-                    onChange={(e) => setEditDistrict(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
-                  >
-                    {TN_DISTRICTS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setEditDistrict}
+                    label={t('district')}
+                    required
+                  />
                 </div>
 
                 <div>

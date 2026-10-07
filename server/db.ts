@@ -14,6 +14,26 @@ import {
   VerificationStatus,
 } from '../src/types';
 
+/**
+ * =========================================================================
+ * ARCHITECTURE & PERSISTENCE NOTE (Render / Cloud Deployment Compatibility)
+ * =========================================================================
+ * Storage Engine: Atomic file-based JSON persistence in `data/db.json` with temporary
+ * swap writes (temp file + atomic rename) to avoid concurrent write corruption.
+ *
+ * Cloud Hosting Note (e.g., Render, Railway, Fly.io, Heroku):
+ * Standard cloud web services use ephemeral dyno containers where files written
+ * to disk are discarded upon server restarts or code redeployments.
+ * For production environments on Render:
+ * 1. Attach a Persistent Disk (mount path: /data) to retain `db.json` across deploys.
+ * 2. Or configure a managed PostgreSQL / Firestore database service when migrating
+ *    to enterprise scale.
+ *
+ * For local and current containerized environments, atomic JSON persistence ensures
+ * instant startup, zero external credentials dependency, and seamless demo data integrity.
+ * =========================================================================
+ */
+
 interface DatabaseSchema {
   users: User[];
   donors: Donor[];
@@ -717,6 +737,24 @@ class DatabaseService {
   // NOTIFICATIONS
   public getNotificationsForDonor(donorId: string): Notification[] {
     return this.db.notifications.filter((n) => n.recipientDonorId === donorId);
+  }
+
+  public isDonorAlreadyAlertedOrResponded(donorId: string, bloodRequestId: string): boolean {
+    const hasResponded = this.db.donorResponses.some(
+      (r) => r.donorId === donorId && r.bloodRequestId === bloodRequestId
+    );
+    if (hasResponded) return true;
+
+    const hasNotif = this.db.notifications.some(
+      (n) => n.recipientDonorId === donorId && n.bloodRequestId === bloodRequestId
+    );
+    return hasNotif;
+  }
+
+  public getDonorResponseForRequest(donorId: string, bloodRequestId: string): DonorResponse | undefined {
+    return this.db.donorResponses.find(
+      (r) => r.donorId === donorId && r.bloodRequestId === bloodRequestId
+    );
   }
 
   public createNotification(data: Omit<Notification, 'id' | 'createdAt'>): Notification {

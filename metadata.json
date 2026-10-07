@@ -2,6 +2,7 @@
   "name": "BloodLink AI – Blood Donor Identifier & Smart Matching System",
   "description": "AI-Powered Blood Donor Identifier & Smart Matching System for hospitals, verified donors, and emergency blood coordination.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
-

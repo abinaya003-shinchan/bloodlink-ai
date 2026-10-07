@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Donor, Hospital, User, UserRole } from '../types';
-import { api } from '../services/api';
+import { api, setApiAuth } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
@@ -42,6 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(data.user);
       setDonor(data.donor || null);
       setHospital(data.hospital || null);
+      setApiAuth(data.user);
       localStorage.setItem('bloodlink_user_email', data.user.email);
     } finally {
       setLoading(false);
@@ -52,6 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setDonor(null);
     setHospital(null);
+    setApiAuth(null);
     localStorage.removeItem('bloodlink_user_email');
   };
 

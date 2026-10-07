@@ -17,6 +17,7 @@ import { EmergencyView } from './components/EmergencyView';
 import { DonorDashboard } from './components/DonorDashboard';
 import { HospitalDashboard } from './components/HospitalDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
+import { EmergencyResponseView } from './components/EmergencyResponseView';
 import { DonorRegistrationModal } from './components/DonorRegistrationModal';
 import { HospitalRegistrationModal } from './components/HospitalRegistrationModal';
 import { LoginModal } from './components/LoginModal';
@@ -42,6 +43,38 @@ const MainContent: React.FC = () => {
   const [activeView, setActiveView] = useState<MainNavView>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchBloodGroup, setSearchBloodGroup] = useState<BloodGroup | undefined>(undefined);
+
+  const [smsResponseParams, setSmsResponseParams] = useState<{ requestId: string; donorId: string } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/^\/respond\/([^/]+)\/([^/]+)/);
+      if (match) {
+        return { requestId: match[1], donorId: match[2] };
+      }
+    }
+    return null;
+  });
+
+  React.useEffect(() => {
+    const handleCustomEvent = (e: any) => {
+      if (e.detail?.requestId && e.detail?.donorId) {
+        setSmsResponseParams({ requestId: e.detail.requestId, donorId: e.detail.donorId });
+      }
+    };
+    const handlePopState = () => {
+      const match = window.location.pathname.match(/^\/respond\/([^/]+)\/([^/]+)/);
+      if (match) {
+        setSmsResponseParams({ requestId: match[1], donorId: match[2] });
+      } else {
+        setSmsResponseParams(null);
+      }
+    };
+    window.addEventListener('open-emergency-response', handleCustomEvent);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('open-emergency-response', handleCustomEvent);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   const [isDonorRegisterOpen, setIsDonorRegisterOpen] = useState(false);
   const [isHospitalRegisterOpen, setIsHospitalRegisterOpen] = useState(false);
@@ -72,7 +105,13 @@ const MainContent: React.FC = () => {
       {/* Top Navigation */}
       <Navbar
         activeView={activeView}
-        onSelectView={(v) => setActiveView(v)}
+        onSelectView={(v) => {
+          if (smsResponseParams && typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/');
+          }
+          setSmsResponseParams(null);
+          setActiveView(v);
+        }}
         onOpenDonorRegister={() => setIsDonorRegisterOpen(true)}
         onOpenHospitalRegister={() => setIsHospitalRegisterOpen(true)}
         onOpenLogin={() => setIsLoginOpen(true)}
@@ -80,7 +119,19 @@ const MainContent: React.FC = () => {
 
       <main className="flex-1 pb-16">
         {/* Dynamic Route View rendering */}
-        {activeView === 'find-donor' ? (
+        {smsResponseParams ? (
+          <EmergencyResponseView
+            requestId={smsResponseParams.requestId}
+            donorId={smsResponseParams.donorId}
+            onGoHome={() => {
+              if (typeof window !== 'undefined') {
+                window.history.pushState(null, '', '/');
+              }
+              setSmsResponseParams(null);
+              setActiveView('home');
+            }}
+          />
+        ) : activeView === 'find-donor' ? (
           <FindDonorView
             initialSearchQuery={searchQuery}
             initialBloodGroup={searchBloodGroup}

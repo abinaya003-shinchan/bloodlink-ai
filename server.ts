@@ -1,12 +1,21 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { dbService } from './server/db';
 import { isCompatible } from './src/services/compatibility';
-import { matchDonors } from './src/services/matching';
+import { matchDonors, checkDonorEligibility } from './src/services/matching';
 import { parseEmergencyBloodRequest } from './server/services/ai';
-import { BloodGroup, RequestUrgency } from './src/types';
+import { BloodGroup, RequestUrgency, Donor } from './src/types';
+import {
+  validateDonorDob,
+  isValidEmail,
+  isValidPhone,
+  isValidBloodGroup,
+  calculateAgeFromDob,
+} from './src/utils/validation';
+import { runFullRegressionSuite } from './server/services/testRunner';
+import { smsService } from './server/services/sms';
 
 dotenv.config();
 
@@ -18,9 +27,69 @@ app.use(express.json());
 // API ROUTER
 const api = express.Router();
 
+/**
+ * Authorization Helper: requires user to have ADMIN role
+ */
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const role = req.headers['x-user-role'];
+  const userId = req.headers['x-user-id'];
+  let isAdmin = role === 'ADMIN';
+
+  if (!isAdmin && userId) {
+    const user = dbService.getUserById(userId as string);
+    if (user && user.role === 'ADMIN') {
+      isAdmin = true;
+    }
+  }
+
+  if (!isAdmin) {
+    return res.status(403).json({
+      error: 'Unauthorized: Administrator privileges are required to perform this action.',
+    });
+  }
+  next();
+}
+
+/**
+ * Sanitizes donor personal data for unauthorized callers.
+ * Phone and email are only exposed to authenticated ADMIN or the donor themselves.
+ */
+function sanitizeDonorRecord(donor: Donor, req: Request): Partial<Donor> {
+  const reqRole = req.headers['x-user-role'];
+  const reqUserId = req.headers['x-user-id'];
+  const isAdmin = reqRole === 'ADMIN';
+  const isOwner = reqUserId && (reqUserId === donor.userId || reqUserId === donor.id);
+
+  if (isAdmin || isOwner) {
+    return donor;
+  }
+
+  // Mask sensitive phone and email for public directory / unauthorized callers
+  const maskedPhone = donor.phone
+    ? `${donor.phone.slice(0, 3)}•••••${donor.phone.slice(-3)}`
+    : undefined;
+  const maskedEmail = donor.email ? `${donor.email[0]}••••@••••` : undefined;
+
+  return {
+    ...donor,
+    phone: maskedPhone as any,
+    email: maskedEmail as any,
+  };
+}
+
 // Health Check
 api.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'BloodLink AI', time: new Date().toISOString() });
+});
+
+// TEST / VALIDATION SUITE ENDPOINT
+api.get('/test/regression-suite', (req: Request, res: Response) => {
+  try {
+    const suiteResult = runFullRegressionSuite();
+    res.json(suiteResult);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to run regression test suite', details: err.message });
+  }
 });
 
 // AUTH
@@ -70,9 +139,13 @@ api.post('/auth/login', (req: Request, res: Response) => {
   let hospital = null;
 
   if (user.role === 'DONOR') {
-    donor = dbService.getDonorByUserId(user.id) || dbService.getAllDonors().find((d) => d.email.toLowerCase() === user.email.toLowerCase());
+    donor =
+      dbService.getDonorByUserId(user.id) ||
+      dbService.getAllDonors().find((d) => d.email.toLowerCase() === user.email.toLowerCase());
   } else if (user.role === 'HOSPITAL') {
-    hospital = dbService.getHospitalByUserId(user.id) || dbService.getAllHospitals().find((h) => h.email.toLowerCase() === user.email.toLowerCase());
+    hospital =
+      dbService.getHospitalByUserId(user.id) ||
+      dbService.getAllHospitals().find((h) => h.email.toLowerCase() === user.email.toLowerCase());
   }
 
   res.json({ user, donor, hospital });
@@ -93,28 +166,59 @@ api.get('/donors', (req: Request, res: Response) => {
     donors = donors.filter((d) => d.verificationStatus === verificationStatus);
   }
 
-  res.json(donors);
+  // Protect sensitive donor contact information
+  const sanitized = donors.map((d) => sanitizeDonorRecord(d, req));
+  res.json(sanitized);
 });
 
 api.get('/donors/:id', (req: Request, res: Response) => {
   const donor = dbService.getDonorById(req.params.id);
   if (!donor) return res.status(404).json({ error: 'Donor not found' });
-  res.json(donor);
+  res.json(sanitizeDonorRecord(donor, req));
 });
 
 api.post('/donors/register', (req: Request, res: Response) => {
   const body = req.body;
 
-  // Validation
-  if (!body.fullName || !body.phone || !body.email || !body.dob || !body.bloodGroup || !body.district || !body.city) {
-    return res.status(400).json({ error: 'Please provide all mandatory fields.' });
+  // 1. Mandatory Field Validation
+  if (
+    !body.fullName ||
+    !body.phone ||
+    !body.email ||
+    !body.dob ||
+    !body.bloodGroup ||
+    !body.district ||
+    !body.city
+  ) {
+    return res.status(400).json({ error: 'Please provide all mandatory donor registration fields.' });
   }
 
+  // 2. Full name length check
+  if (typeof body.fullName !== 'string' || body.fullName.trim().length < 2) {
+    return res.status(400).json({ error: 'Full name must contain at least 2 characters.' });
+  }
+
+  // 3. Email Format Validation
+  if (!isValidEmail(body.email)) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
+  }
+
+  // 4. Phone Number Validation
+  if (!isValidPhone(body.phone)) {
+    return res.status(400).json({ error: 'Please enter a valid 10 to 15-digit phone number.' });
+  }
+
+  // 5. Blood Group Validation
+  if (!isValidBloodGroup(body.bloodGroup)) {
+    return res.status(400).json({ error: 'Invalid blood group specified. Must be one of A+, A-, B+, B-, AB+, AB-, O+, O-.' });
+  }
+
+  // 6. Consent Confirmation
   if (body.consent !== true) {
     return res.status(400).json({ error: 'Consent confirmation is required for donor registration.' });
   }
 
-  // Duplicate Check
+  // 7. Duplicate Check
   const dupCheck = dbService.detectDuplicates(body.phone, body.email);
   if (dupCheck.isDuplicate) {
     return res.status(409).json({
@@ -123,14 +227,25 @@ api.post('/donors/register', (req: Request, res: Response) => {
     });
   }
 
-  // Calculate age
-  const birthYear = new Date(body.dob).getFullYear();
-  const currentYear = new Date().getFullYear();
-  const age = body.age || (currentYear - birthYear);
-
-  if (age < 18 || age > 65) {
-    return res.status(400).json({ error: 'Donor age must be between 18 and 65 years.' });
+  // 8. Accurate Age Calculation & Validation from full DOB
+  const dobValidation = validateDonorDob(body.dob);
+  if (!dobValidation.valid) {
+    return res.status(400).json({ error: dobValidation.error || 'Invalid date of birth.' });
   }
+  const age = dobValidation.age;
+
+  // 9. Location Coordinates: NEVER fabricate Chennai or default GPS coordinates!
+  // If coordinates are provided as valid numbers, preserve them; otherwise use honest district/city fallback
+  const validLat = typeof body.location?.lat === 'number' && !isNaN(body.location.lat) && body.location.lat !== 0 ? body.location.lat : undefined;
+  const validLng = typeof body.location?.lng === 'number' && !isNaN(body.location.lng) && body.location.lng !== 0 ? body.location.lng : undefined;
+
+  const donorLocation = {
+    lat: validLat,
+    lng: validLng,
+    address: body.address || `${body.city}, ${body.district}`,
+    district: body.district,
+    city: body.city,
+  };
 
   // Create user record
   let user = dbService.getUserByEmail(body.email);
@@ -146,22 +261,16 @@ api.post('/donors/register', (req: Request, res: Response) => {
   // Standard initial state: PENDING verification
   const newDonor = dbService.createDonor({
     userId: user.id,
-    fullName: body.fullName,
-    phone: body.phone,
-    email: body.email,
+    fullName: body.fullName.trim(),
+    phone: body.phone.trim(),
+    email: body.email.trim().toLowerCase(),
     dob: body.dob,
     age,
     gender: body.gender || 'Other',
     bloodGroup: body.bloodGroup as BloodGroup,
-    district: body.district,
-    city: body.city,
-    location: body.location || {
-      lat: 13.0827,
-      lng: 80.2707,
-      address: `${body.city}, ${body.district}`,
-      district: body.district,
-      city: body.city,
-    },
+    district: body.district.trim(),
+    city: body.city.trim(),
+    location: donorLocation,
     emergencyAvailable: Boolean(body.emergencyAvailable),
     preferredLanguage: body.preferredLanguage || 'en',
     lastDonationDate: body.lastDonationDate || null,
@@ -195,23 +304,22 @@ api.put('/donors/:id', (req: Request, res: Response) => {
 
   let age = existing.age;
   if (body.dob) {
-    const birthYear = new Date(body.dob).getFullYear();
-    const currentYear = new Date().getFullYear();
-    age = currentYear - birthYear;
-    if (age < 18 || age > 65) {
-      return res.status(400).json({ error: 'Donor age must be between 18 and 65 years.' });
+    const dobValidation = validateDonorDob(body.dob);
+    if (!dobValidation.valid) {
+      return res.status(400).json({ error: dobValidation.error });
     }
+    age = dobValidation.age;
   }
 
   const updates: any = {
-    fullName: body.fullName || existing.fullName,
-    phone: body.phone || existing.phone,
-    email: body.email || existing.email,
+    fullName: body.fullName ? body.fullName.trim() : existing.fullName,
+    phone: body.phone ? body.phone.trim() : existing.phone,
+    email: body.email ? body.email.trim().toLowerCase() : existing.email,
     dob: body.dob || existing.dob,
     age,
     gender: body.gender || existing.gender,
-    district: body.district || existing.district,
-    city: body.city || existing.city,
+    district: body.district ? body.district.trim() : existing.district,
+    city: body.city ? body.city.trim() : existing.city,
     location: body.location || existing.location,
     emergencyAvailable: body.emergencyAvailable !== undefined ? Boolean(body.emergencyAvailable) : existing.emergencyAvailable,
     preferredLanguage: body.preferredLanguage || existing.preferredLanguage,
@@ -256,12 +364,23 @@ api.patch('/notifications/:id/view', (req: Request, res: Response) => {
 });
 
 api.post('/donors/:id/respond', (req: Request, res: Response) => {
-  const { bloodRequestId, responseOption, notes } = req.body;
+  const { bloodRequestId, responseOption, notes, channel } = req.body;
   const donor = dbService.getDonorById(req.params.id);
   if (!donor) return res.status(404).json({ error: 'Donor not found' });
 
   const request = dbService.getBloodRequestById(bloodRequestId);
   if (!request) return res.status(404).json({ error: 'Blood request not found' });
+
+  // Prevent duplicate responses
+  const existingResponse = dbService.getDonorResponseForRequest(donor.id, bloodRequestId);
+  if (existingResponse) {
+    return res.json({
+      success: true,
+      alreadyResponded: true,
+      donorResponse: existingResponse,
+      message: `You have already recorded your response as "${existingResponse.response}".`,
+    });
+  }
 
   // Update notification status
   const notifs = dbService.getNotificationsForDonor(donor.id);
@@ -274,7 +393,8 @@ api.post('/donors/:id/respond', (req: Request, res: Response) => {
     });
   }
 
-  // Record donor response
+  // Record donor response:
+  // PROTECTED PRIVACY: Only record donorPhone if donor says 'I CAN DONATE'
   const donorResponse = dbService.createDonorResponse({
     bloodRequestId,
     donorId: donor.id,
@@ -283,7 +403,24 @@ api.post('/donors/:id/respond', (req: Request, res: Response) => {
     donorPhone: responseOption === 'I CAN DONATE' ? donor.phone : undefined,
     response: responseOption,
     notes,
+    responseChannel: channel || 'IN_APP',
   });
+
+  // Audit Logging
+  const auditAction =
+    responseOption === 'I CAN DONATE'
+      ? 'DONOR_RESPONDED_YES'
+      : responseOption === 'NOT AVAILABLE'
+      ? 'DONOR_RESPONDED_NO'
+      : 'DONOR_RESPONDED_MAYBE';
+
+  dbService.addAuditLog(
+    'DONOR',
+    donor.id,
+    donor.fullName,
+    auditAction,
+    `Donor recorded response "${responseOption}" for Request ${bloodRequestId} via ${channel || 'IN_APP'}`
+  );
 
   res.json({ success: true, donorResponse });
 });
@@ -291,6 +428,101 @@ api.post('/donors/:id/respond', (req: Request, res: Response) => {
 api.get('/donors/:id/responses', (req: Request, res: Response) => {
   const responses = dbService.getResponsesByDonor(req.params.id);
   res.json(responses);
+});
+
+// EMERGENCY SMS RESPONSE LINK WORKFLOW ENDPOINTS
+api.get('/emergency/request-summary/:requestId/:donorId', (req: Request, res: Response) => {
+  const { requestId, donorId } = req.params;
+  const request = dbService.getBloodRequestById(requestId);
+  const donor = dbService.getDonorById(donorId);
+
+  if (!request || !donor) {
+    return res.status(404).json({
+      error: 'Emergency blood request or donor record not found. The link may be expired or invalid.',
+    });
+  }
+
+  const existingResponse = dbService.getDonorResponseForRequest(donor.id, request.id);
+
+  res.json({
+    requestId: request.id,
+    donorId: donor.id,
+    donorName: donor.fullName,
+    donorBloodGroup: donor.bloodGroup,
+    hospitalName: request.hospitalName,
+    hospitalPhone: request.hospitalPhone,
+    hospitalDistrict: request.hospitalLocation?.district,
+    hospitalCity: request.hospitalLocation?.city,
+    requiredBloodGroup: request.requiredBloodGroup,
+    unitsRequired: request.unitsRequired,
+    urgency: request.urgency,
+    requiredDateTime: request.requiredDateTime,
+    additionalNotes: request.additionalNotes,
+    hasResponded: Boolean(existingResponse),
+    existingResponse: existingResponse?.response,
+    respondedAt: existingResponse?.respondedAt,
+  });
+});
+
+api.post('/emergency/respond', (req: Request, res: Response) => {
+  const { bloodRequestId, donorId, responseOption, notes } = req.body;
+  const donor = dbService.getDonorById(donorId);
+  if (!donor) return res.status(404).json({ error: 'Donor not found' });
+
+  const request = dbService.getBloodRequestById(bloodRequestId);
+  if (!request) return res.status(404).json({ error: 'Blood request not found' });
+
+  // Prevent duplicate responses
+  const existingResponse = dbService.getDonorResponseForRequest(donor.id, bloodRequestId);
+  if (existingResponse) {
+    return res.json({
+      success: true,
+      alreadyResponded: true,
+      donorResponse: existingResponse,
+      message: `You have already submitted your response as "${existingResponse.response}".`,
+    });
+  }
+
+  // Update in-app notification status if exists
+  const notifs = dbService.getNotificationsForDonor(donor.id);
+  const targetNotif = notifs.find((n) => n.bloodRequestId === bloodRequestId);
+  if (targetNotif) {
+    dbService.updateNotification(targetNotif.id, {
+      status: 'RESPONDED',
+      responseOption,
+      respondedAt: new Date().toISOString(),
+    });
+  }
+
+  // Record donor response:
+  // PROTECTED PRIVACY: Only record donorPhone if donor says 'I CAN DONATE'
+  const donorResponse = dbService.createDonorResponse({
+    bloodRequestId,
+    donorId: donor.id,
+    donorName: donor.fullName,
+    donorBloodGroup: donor.bloodGroup,
+    donorPhone: responseOption === 'I CAN DONATE' ? donor.phone : undefined,
+    response: responseOption,
+    notes,
+    responseChannel: 'SMS_LINK',
+  });
+
+  const auditAction =
+    responseOption === 'I CAN DONATE'
+      ? 'DONOR_RESPONDED_YES'
+      : responseOption === 'NOT AVAILABLE'
+      ? 'DONOR_RESPONDED_NO'
+      : 'DONOR_RESPONDED_MAYBE';
+
+  dbService.addAuditLog(
+    'DONOR',
+    donor.id,
+    donor.fullName,
+    auditAction,
+    `Donor responded "${responseOption}" via Emergency SMS response link for Request ${bloodRequestId}`
+  );
+
+  res.json({ success: true, donorResponse });
 });
 
 // HOSPITALS
@@ -310,6 +542,14 @@ api.post('/hospitals/register', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'All hospital registration fields are mandatory.' });
   }
 
+  if (!isValidEmail(body.email)) {
+    return res.status(400).json({ error: 'Please provide a valid email address.' });
+  }
+
+  if (!isValidPhone(body.phone)) {
+    return res.status(400).json({ error: 'Please provide a valid phone number.' });
+  }
+
   // Duplicate hospital prevention
   const dupCheck = dbService.detectDuplicateHospital(body.phone, body.email);
   if (dupCheck.isDuplicate) {
@@ -326,18 +566,21 @@ api.post('/hospitals/register', (req: Request, res: Response) => {
     });
   }
 
+  const validLat = typeof body.location?.lat === 'number' && !isNaN(body.location.lat) && body.location.lat !== 0 ? body.location.lat : undefined;
+  const validLng = typeof body.location?.lng === 'number' && !isNaN(body.location.lng) && body.location.lng !== 0 ? body.location.lng : undefined;
+
   const hospital = dbService.createHospital({
     userId: user.id,
-    hospitalName: body.hospitalName,
-    authorizedContact: body.authorizedContact,
-    phone: body.phone,
-    email: body.email,
-    address: body.address,
-    district: body.district || 'Chennai',
-    city: body.city || 'Chennai',
-    location: body.location || {
-      lat: 13.0827,
-      lng: 80.2707,
+    hospitalName: body.hospitalName.trim(),
+    authorizedContact: body.authorizedContact.trim(),
+    phone: body.phone.trim(),
+    email: body.email.trim().toLowerCase(),
+    address: body.address.trim(),
+    district: body.district ? body.district.trim() : 'Chennai',
+    city: body.city ? body.city.trim() : 'Chennai',
+    location: {
+      lat: validLat,
+      lng: validLng,
       address: body.address,
       district: body.district || 'Chennai',
       city: body.city || 'Chennai',
@@ -366,9 +609,34 @@ api.post('/requests', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Missing mandatory blood request parameters' });
   }
 
+  // Validate blood group format
+  if (!isValidBloodGroup(body.requiredBloodGroup)) {
+    return res.status(400).json({ error: 'Invalid blood group specified.' });
+  }
+
+  // Validate units
+  if (Number(body.unitsRequired) < 1) {
+    return res.status(400).json({ error: 'Units required must be at least 1 unit.' });
+  }
+
   const hospital = dbService.getHospitalById(body.hospitalId);
   if (!hospital) {
     return res.status(404).json({ error: 'Hospital record not found.' });
+  }
+
+  // -------------------------------------------------------------------
+  // REQUIREMENT 5: HOSPITAL VERIFICATION ENFORCEMENT
+  // A hospital must be VERIFIED before it can create a real blood request.
+  // Enforce this on the backend/API. If Pending Verification:
+  // - block request creation
+  // - return clear error
+  // - do not create a request
+  // - do not notify donors
+  // -------------------------------------------------------------------
+  if (hospital.verificationStatus !== 'VERIFIED') {
+    return res.status(403).json({
+      error: 'Hospital verification is required before creating a blood request. Please wait for administrator verification approval.',
+    });
   }
 
   let aiAnalysis = body.aiAnalysis;
@@ -399,28 +667,73 @@ api.post('/requests', async (req: Request, res: Response) => {
     responsesCount: 0,
   });
 
-  // Automatically execute matching
+  // Automatically execute matching (only eligible donors are returned)
   const allDonors = dbService.getAllDonors();
   const matches = matchDonors(newRequest, allDonors);
 
-  // If Emergency, automatically dispatch notifications to top matching verified available donors
+  // -------------------------------------------------------------------
+  // REQUIREMENT 2 & 4: EMERGENCY NOTIFICATIONS & SMS BROADCASTS
+  // Emergency notifications must only be sent to donors who pass the
+  // same eligibility rules used by the matching engine.
+  // Real SMS notifications are dispatched to registered mobile numbers.
+  // Duplicate notifications for the same request and donor are strictly prevented.
+  // -------------------------------------------------------------------
   if (newRequest.urgency === 'EMERGENCY' || body.autoNotify) {
     let notifiedCount = 0;
-    const topCandidates = matches.filter((m) => m.matchScore >= 60).slice(0, 10);
+    const topCandidates = matches.slice(0, 10);
 
     for (const match of topCandidates) {
+      // PREVENT DUPLICATE NOTIFICATION FOR SAME DONOR + SAME REQUEST
+      if (dbService.isDonorAlreadyAlertedOrResponded(match.donorId, newRequest.id)) {
+        continue;
+      }
+
+      const donorRecord = dbService.getDonorById(match.donorId);
+      if (!donorRecord) continue;
+
+      let smsResult: any = { status: 'SKIPPED' };
+      if (newRequest.urgency === 'EMERGENCY') {
+        // Send REAL SMS notification to registered mobile number
+        smsResult = await smsService.sendEmergencySms({
+          recipientPhone: donorRecord.phone,
+          donorId: donorRecord.id,
+          donorName: donorRecord.fullName,
+          bloodRequestId: newRequest.id,
+          requiredBloodGroup: newRequest.requiredBloodGroup,
+          unitsRequired: newRequest.unitsRequired,
+          hospitalName: hospital.hospitalName,
+          district: hospital.district,
+          urgency: newRequest.urgency,
+          preferredLanguage: donorRecord.preferredLanguage,
+        });
+
+        dbService.addAuditLog(
+          'SYSTEM',
+          donorRecord.id,
+          donorRecord.fullName,
+          'EMERGENCY_SMS_ATTEMPTED',
+          `Emergency SMS status: ${smsResult.status} for Request ${newRequest.id} to ${donorRecord.phone}. Link: ${smsResult.responseUrl}`
+        );
+      }
+
       dbService.createNotification({
         recipientDonorId: match.donorId,
         bloodRequestId: newRequest.id,
         title: `EMERGENCY BLOOD ALERT: ${newRequest.requiredBloodGroup} (${newRequest.unitsRequired} Units)`,
-        message: `${hospital.hospitalName} has initiated an emergency request for ${newRequest.requiredBloodGroup}. You are a compatible matching donor (${match.distanceDisplay}).`,
+        message: `${hospital.hospitalName} has initiated an emergency request for ${newRequest.requiredBloodGroup}. You are an eligible compatible donor (${match.distanceDisplay}).`,
         urgency: newRequest.urgency,
         requiredBloodGroup: newRequest.requiredBloodGroup,
         hospitalName: hospital.hospitalName,
         approxDistanceKm: match.distanceKm || undefined,
         unitsRequired: newRequest.unitsRequired,
         status: 'NOTIFIED',
-        deliveryChannel: 'IN_APP',
+        deliveryChannel: newRequest.urgency === 'EMERGENCY' ? 'IN_APP_AND_SMS' : 'IN_APP',
+        smsStatus: smsResult.status,
+        smsRecipientPhone: donorRecord.phone,
+        smsError: smsResult.error,
+        smsSentAt: smsResult.sentAt,
+        smsMessageBody: smsResult.messageBody,
+        responseUrl: smsResult.responseUrl,
       });
       notifiedCount++;
     }
@@ -440,15 +753,15 @@ api.get('/requests/:id/matches', (req: Request, res: Response) => {
   const request = dbService.getBloodRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
 
-  const verifiedOnly = req.query.verifiedOnly === 'true';
-  const availableOnly = req.query.availableOnly === 'true';
   const maxDistanceKm = req.query.maxDistance ? Number(req.query.maxDistance) : undefined;
+  const districtFilter = req.query.districtFilter ? String(req.query.districtFilter) : undefined;
 
   const donors = dbService.getAllDonors();
+  // matchDonors strictly filters to ONLY eligible donors
   const matches = matchDonors(request, donors, {
-    verifiedOnly,
-    availableOnly,
     maxDistanceKm,
+    districtFilter,
+    emergencyOnly: req.query.emergencyOnly === 'true',
   });
 
   res.json({
@@ -460,20 +773,54 @@ api.get('/requests/:id/matches', (req: Request, res: Response) => {
   });
 });
 
-api.post('/requests/:id/notify-donors', (req: Request, res: Response) => {
+api.post('/requests/:id/notify-donors', async (req: Request, res: Response) => {
   const request = dbService.getBloodRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
 
-  const { donorIds } = req.body;
+  const { donorIds, sendSms } = req.body;
   const donors = dbService.getAllDonors();
-  const matches = matchDonors(request, donors);
+  const matches = matchDonors(request, donors); // strictly eligible donors only
 
   const targets = donorIds
     ? matches.filter((m) => donorIds.includes(m.donorId))
-    : matches.filter((m) => m.matchScore >= 50).slice(0, 15);
+    : matches.slice(0, 15);
 
   let notified = 0;
   for (const match of targets) {
+    // PREVENT DUPLICATE NOTIFICATION FOR SAME DONOR AND SAME REQUEST
+    if (dbService.isDonorAlreadyAlertedOrResponded(match.donorId, request.id)) {
+      continue;
+    }
+
+    const donorRecord = dbService.getDonorById(match.donorId);
+    if (!donorRecord) continue;
+
+    let smsResult: any = { status: 'SKIPPED' };
+    const shouldSendSms = request.urgency === 'EMERGENCY' || sendSms;
+
+    if (shouldSendSms) {
+      smsResult = await smsService.sendEmergencySms({
+        recipientPhone: donorRecord.phone,
+        donorId: donorRecord.id,
+        donorName: donorRecord.fullName,
+        bloodRequestId: request.id,
+        requiredBloodGroup: request.requiredBloodGroup,
+        unitsRequired: request.unitsRequired,
+        hospitalName: request.hospitalName,
+        district: request.hospitalLocation?.district,
+        urgency: request.urgency,
+        preferredLanguage: donorRecord.preferredLanguage,
+      });
+
+      dbService.addAuditLog(
+        'SYSTEM',
+        donorRecord.id,
+        donorRecord.fullName,
+        'EMERGENCY_SMS_ATTEMPTED',
+        `SMS dispatch ${smsResult.status} for Request ${request.id} to ${donorRecord.phone}. Link: ${smsResult.responseUrl}`
+      );
+    }
+
     dbService.createNotification({
       recipientDonorId: match.donorId,
       bloodRequestId: request.id,
@@ -485,7 +832,13 @@ api.post('/requests/:id/notify-donors', (req: Request, res: Response) => {
       approxDistanceKm: match.distanceKm || undefined,
       unitsRequired: request.unitsRequired,
       status: 'NOTIFIED',
-      deliveryChannel: 'IN_APP',
+      deliveryChannel: shouldSendSms ? 'IN_APP_AND_SMS' : 'IN_APP',
+      smsStatus: smsResult.status,
+      smsRecipientPhone: donorRecord.phone,
+      smsError: smsResult.error,
+      smsSentAt: smsResult.sentAt,
+      smsMessageBody: smsResult.messageBody,
+      responseUrl: smsResult.responseUrl,
     });
     notified++;
   }
@@ -505,9 +858,42 @@ api.patch('/requests/:id/status', (req: Request, res: Response) => {
   res.json(updated);
 });
 
+// -------------------------------------------------------------------
+// REQUIREMENT 6: DONOR CONTACT PRIVACY
+// Hospital must NOT receive donor phone/email merely because a match exists.
+// When donor chooses "I CAN DONATE" -> expose donor phone to authorized hospital.
+// "NOT AVAILABLE" and "MAYBE LATER" must NOT reveal protected contact information.
+// -------------------------------------------------------------------
 api.get('/requests/:id/responses', (req: Request, res: Response) => {
+  const request = dbService.getBloodRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+
   const responses = dbService.getResponsesForRequest(req.params.id);
-  res.json(responses);
+
+  const reqRole = req.headers['x-user-role'];
+  const reqUserId = req.headers['x-user-id'];
+  const isAdmin = reqRole === 'ADMIN';
+
+  // Check if hospital is the authorized owner of this request
+  let isAuthorizedHospital = false;
+  if (reqUserId) {
+    const userHosp =
+      dbService.getHospitalByUserId(reqUserId as string) ||
+      dbService.getHospitalById(reqUserId as string);
+    if (userHosp && userHosp.id === request.hospitalId) {
+      isAuthorizedHospital = true;
+    }
+  }
+
+  const sanitizedResponses = responses.map((r) => {
+    const isContactAuthorized = (isAuthorizedHospital || isAdmin) && r.response === 'I CAN DONATE';
+    return {
+      ...r,
+      donorPhone: isContactAuthorized ? r.donorPhone : undefined,
+    };
+  });
+
+  res.json(sanitizedResponses);
 });
 
 // AI REQUEST PARSING
@@ -519,16 +905,19 @@ api.post('/ai/parse-request', async (req: Request, res: Response) => {
   res.json(parsed);
 });
 
-// ADMIN MANAGEMENT & VERIFICATION
-api.post('/admin/verify-donor', (req: Request, res: Response) => {
+// -------------------------------------------------------------------
+// REQUIREMENT 7: API AUTHORIZATION (ADMIN-ONLY OPERATIONS)
+// Protected with requireAdmin middleware.
+// -------------------------------------------------------------------
+api.post('/admin/verify-donor', requireAdmin, (req: Request, res: Response) => {
   const { donorId, action, reason, adminUserId } = req.body;
   const donor = dbService.getDonorById(donorId);
   if (!donor) return res.status(404).json({ error: 'Donor not found' });
 
   // Rule: Do not allow incomplete donor profiles to become Verified
-  if (action === 'VERIFIED' && donor.profileCompleteness < 90) {
+  if (action === 'VERIFIED' && donor.profileCompleteness < 70) {
     return res.status(400).json({
-      error: `Cannot verify incomplete profile (${donor.profileCompleteness}% complete). All mandatory fields must be completed.`,
+      error: `Cannot verify incomplete profile (${donor.profileCompleteness}% complete). Minimum 70% required.`,
     });
   }
 
@@ -566,7 +955,7 @@ api.post('/admin/verify-donor', (req: Request, res: Response) => {
   res.json({ success: true, donor: updated });
 });
 
-api.post('/admin/verify-hospital', (req: Request, res: Response) => {
+api.post('/admin/verify-hospital', requireAdmin, (req: Request, res: Response) => {
   const { hospitalId, action, reason, adminUserId } = req.body;
   const hospital = dbService.getHospitalById(hospitalId);
   if (!hospital) return res.status(404).json({ error: 'Hospital not found' });
@@ -589,7 +978,7 @@ api.post('/admin/verify-hospital', (req: Request, res: Response) => {
   res.json({ success: true, hospital: updated });
 });
 
-api.get('/admin/suspicious-records', (req: Request, res: Response) => {
+api.get('/admin/suspicious-records', requireAdmin, (req: Request, res: Response) => {
   const donors = dbService.getAllDonors();
   const suspicious = donors.filter((d) => d.isSuspicious);
 
@@ -643,15 +1032,15 @@ api.get('/admin/suspicious-records', (req: Request, res: Response) => {
   });
 });
 
-api.get('/admin/audit-logs', (req: Request, res: Response) => {
+api.get('/admin/audit-logs', requireAdmin, (req: Request, res: Response) => {
   res.json(dbService.getSnapshot().auditLogs);
 });
 
-api.get('/admin/notifications', (req: Request, res: Response) => {
+api.get('/admin/notifications', requireAdmin, (req: Request, res: Response) => {
   res.json(dbService.getSnapshot().notifications);
 });
 
-api.get('/admin/stats', (req: Request, res: Response) => {
+api.get('/admin/stats', requireAdmin, (req: Request, res: Response) => {
   const snap = dbService.getSnapshot();
   res.json({
     totalDonors: snap.donors.length,

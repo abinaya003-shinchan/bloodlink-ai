@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { BloodGroup, Donor, DonorMatchResult, VerificationStatus, DonorStatus } from '../types';
 import { isCompatible, getCompatibilityDetails } from '../services/compatibility';
 import { formatDistance } from '../services/distance';
+import { DistrictSelect } from './DistrictSelect';
 import {
   Search,
   MapPin,
@@ -28,19 +29,6 @@ interface FindDonorViewProps {
 }
 
 const BLOOD_GROUPS: BloodGroup[] = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'];
-
-const TN_DISTRICTS = [
-  'All Districts',
-  'Chennai',
-  'Coimbatore',
-  'Madurai',
-  'Tiruchirappalli',
-  'Salem',
-  'Tirunelveli',
-  'Erode',
-  'Vellore',
-  'Thanjavur',
-];
 
 export const FindDonorView: React.FC<FindDonorViewProps> = ({
   initialSearchQuery = '',
@@ -192,17 +180,12 @@ export const FindDonorView: React.FC<FindDonorViewProps> = ({
 
           {/* District Filter */}
           <div>
-            <select
+            <DistrictSelect
+              allowAllOption
               value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-red-500 font-semibold"
-            >
-              {TN_DISTRICTS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              onChange={setSelectedDistrict}
+              placeholder="Filter by Tamil Nadu district..."
+            />
           </div>
         </div>
 

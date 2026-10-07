@@ -26,8 +26,8 @@ export type RequestStatus =
 export type DonorResponseType = 'I CAN DONATE' | 'NOT AVAILABLE' | 'MAYBE LATER';
 
 export interface LocationCoordinates {
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
   address?: string;
   district?: string;
   city?: string;
@@ -131,7 +131,13 @@ export interface Notification {
   status: 'NOTIFIED' | 'VIEWED' | 'RESPONDED' | 'DELIVERED' | 'READ';
   responseOption?: DonorResponseType;
   respondedAt?: string;
-  deliveryChannel: 'IN_APP';
+  deliveryChannel: 'IN_APP' | 'SMS' | 'IN_APP_AND_SMS';
+  smsStatus?: 'SENT' | 'FAILED' | 'NOT_CONFIGURED' | 'PENDING' | 'SKIPPED';
+  smsRecipientPhone?: string;
+  smsError?: string;
+  smsSentAt?: string;
+  smsMessageBody?: string;
+  responseUrl?: string;
   createdAt: string;
 }
 
@@ -146,6 +152,7 @@ export interface DonorResponse {
   distanceKm?: number;
   notes?: string;
   respondedAt: string;
+  responseChannel?: 'IN_APP' | 'SMS_LINK';
 }
 
 export interface VerificationRecord {
@@ -187,4 +194,23 @@ export interface DonorMatchResult {
   lastDonationDate: string | null;
   daysSinceLastDonation: number | null;
   isMedicallyEligibleTiming: boolean;
+}
+
+export interface EmergencyRequestSummary {
+  requestId: string;
+  donorId: string;
+  donorName: string;
+  donorBloodGroup: BloodGroup;
+  hospitalName: string;
+  hospitalPhone: string;
+  hospitalDistrict?: string;
+  hospitalCity?: string;
+  requiredBloodGroup: BloodGroup;
+  unitsRequired: number;
+  urgency: string;
+  requiredDateTime: string;
+  additionalNotes?: string;
+  hasResponded: boolean;
+  existingResponse?: string;
+  respondedAt?: string;
 }
